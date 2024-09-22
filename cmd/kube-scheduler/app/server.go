@@ -419,6 +419,8 @@ func startRebalanceLoop(ctx context.Context, sched *scheduler.Scheduler, metisAd
 		case <-ctx.Done():
 			return
 		case <-time.After(1 * time.Minute):
+			klog.Infof("[SCG Generator] Start")
+
 			requestData := make(map[string]interface{}) // metis requestData
 			requestData["node_list"] = []string{}
 			requestData["pod_list"] = []string{}
@@ -430,10 +432,10 @@ func startRebalanceLoop(ctx context.Context, sched *scheduler.Scheduler, metisAd
 			if err != nil {
 				klog.Errorf("Failed to get pods: %v", err)
 			} else {
-				klog.InfoS("Current Pods:")
+				klog.Infof("[SCG Generator] Pod list:")
 
 				for _, pod := range pods.Items {
-					klog.InfoS("- Pod", "name", pod.Name, "namespace", pod.Namespace)
+					klog.InfoS("    - Pod", "name", pod.Name, "namespace", pod.Namespace)
 					requestData["pod_list"] = append(requestData["pod_list"].([]string), pod.Name)
 					podList = append(podList, pod)
 				}
@@ -444,16 +446,16 @@ func startRebalanceLoop(ctx context.Context, sched *scheduler.Scheduler, metisAd
 			if err != nil {
 				klog.Errorf("Failed to get nodes: %v", err)
 			} else {
-				klog.InfoS("Current Nodes:")
+				klog.Infof("[SCG Generator] Node list:")
 				for _, node := range nodes.Items {
 					if node.Name != "kind-control-plane" { // add Node name if node name is worker
-						klog.InfoS("- Node", "name", node.Name)
+						klog.InfoS("    - Node", "name", node.Name)
 						requestData["node_list"] = append(requestData["node_list"].([]string), node.Name)
 					}
 				}
 			}
 
-			// 대충 pod 3개 일때 인접 리스트랑 가중치 임의로 설정
+			// pod 3개 일때 인접 리스트랑 가중치 및 노드 가중치를 임의로 설정
 			requestData["adjacency_list"] = [][]int{
 				{1, 2},
 				{0, 2},
@@ -464,15 +466,26 @@ func startRebalanceLoop(ctx context.Context, sched *scheduler.Scheduler, metisAd
 				{10, 1},
 				{100, 1},
 			}
+			requestData["vweights"] = []int{
+				512,
+				128,
+			}
+
+			klog.Infof("[SCG Generator] Edges & Weight")
+			klog.InfoS("    - Edges","edge", requestData["adjacency_list"])
+			klog.InfoS("    - Edge Weights","weight", requestData["adjacency_list"])
+			klog.InfoS("    - Node Weights","weight", requestData["vweights"])
 
 			result, err := sendMetisRequest(ctx, metisAddress, requestData)
 			if err != nil {
 				klog.Errorf("Failed to METIS test: %v", err)
 			}
-			klog.InfoS("Received partitions from METIS", "Cuts", result.Cuts, "Parts", result.Parts)
+			klog.Infof("[SCG Generator] METIS")
+			klog.InfoS("    - METIS Result", "Cuts", result.Cuts, "Parts", result.Parts)
 
 			// delete pod
 			deletePod(ctx, clientset, podList)
+			klog.Infof("[SCG Generator] Fin")
 		}
 	}
 }
